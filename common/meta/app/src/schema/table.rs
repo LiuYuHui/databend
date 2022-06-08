@@ -24,6 +24,7 @@ use common_datavalues::chrono::DateTime;
 use common_datavalues::chrono::Utc;
 use common_datavalues::prelude::*;
 use common_meta_types::MatchSeq;
+use common_meta_types::MetaId;
 use maplit::hashmap;
 
 use crate::schema::database::DatabaseNameIdent;
@@ -380,6 +381,24 @@ impl Display for DropTableReq {
             self.db_name(),
             self.table_name()
         )
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct DropTableIDReq {
+    pub dbname_ident: DatabaseNameIdent,
+    pub table_id: MetaId,
+}
+
+impl DropTableIDReq {
+    pub fn tenant(&self) -> &str {
+        &self.dbname_ident.tenant
+    }
+    pub fn db_name(&self) -> &str {
+        &self.dbname_ident.db_name
+    }
+    pub fn table_id(&self) -> MetaId {
+        self.table_id
     }
 }
 

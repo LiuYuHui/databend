@@ -76,6 +76,9 @@ impl Interpreter for DropTableInterpreter {
         };
 
         let catalog = self.ctx.get_catalog(catalog_name)?;
+        if let Some(table) = tbl {
+            let table_id = table.get_id();    
+        }
         catalog.drop_table(self.plan.clone().into()).await?;
 
         if let Some(tbl) = tbl {

@@ -37,6 +37,7 @@ use common_meta_app::schema::DropDatabaseReply;
 use common_meta_app::schema::DropDatabaseReq;
 use common_meta_app::schema::DropTableReply;
 use common_meta_app::schema::DropTableReq;
+use common_meta_app::schema::DropTableIDReq;
 use common_meta_app::schema::GetDatabaseReq;
 use common_meta_app::schema::GetTableReq;
 use common_meta_app::schema::ListDatabaseReq;
@@ -766,6 +767,97 @@ impl<KV: KVApi> SchemaApi for KV {
 
                 if succ {
                     return Ok(CreateTableReply { table_id });
+                }
+            }
+        }
+    }
+
+    async fn drop_table_by_id(&self, req: DropTableIDReq) -> Result<DropTableReply, MetaError>{
+        let tenant_dbname = req.dbname_ident;
+        let mut tbcount_found = false;
+        let mut tb_count = 0;
+        let mut tb_count_seq;
+        let table_id = req.table_id;
+        loop {
+
+            let tbid = TableId { table_id };
+
+            let (tb_meta_seq, tb_meta): (_, Option<TableMeta>) =
+                get_struct_value(self, &tbid).await?;
+
+            // get current table count from _fd_table_count/tenant
+            let tb_count_key = CountTablesKey {
+                tenant: tenant_dbname.tenant.clone(),
+            };
+            (tb_count_seq, tb_count) = {
+                let (seq, count) = get_u64_value(self, &tb_count_key).await?;
+                if seq > 0 {
+                    (seq, count)
+                } else if !tbcount_found {
+                    // only count_tables for the first time.
+                    tbcount_found = true;
+                    (0, count_tables(self, &tb_count_key).await?)
+                } else {
+                    (0, tb_count)
+                }
+            };
+            // Delete table by these operations:
+            // del (db_id, table_name) -> table_id
+            // set table_meta.drop_on = now and update (table_id) -> table_meta
+
+            tracing::debug!(
+                ident = display(&tbid),
+                name = display(&tenant_dbname_tbname),
+                "drop table"
+            );
+
+            {
+                // update drop on time
+                let mut tb_meta = tb_meta.unwrap();
+                // drop a table with drop_on time
+                if tb_meta.drop_on.is_some() {
+                    return Err(MetaError::AppError(AppError::DropTableWithDropTime(
+                        DropTableWithDropTime::new(&tenant_dbname_tbname.table_name),
+                    )));
+                }
+
+                tb_meta.drop_on = Some(Utc::now());
+
+                let txn_req = TxnRequest {
+                    condition: vec![
+                        // db has not to change, i.e., no new table is created.
+                        // Renaming db is OK and does not affect the seq of db_meta.
+                        txn_cond_seq(&DatabaseId { db_id }, Eq, db_meta_seq)?,
+                        // still this table id
+                        txn_cond_seq(&dbid_tbname, Eq, tb_id_seq)?,
+                        // table is not changed
+                        txn_cond_seq(&tbid, Eq, tb_meta_seq)?,
+                        // update table count atomicly
+                        txn_cond_seq(&tb_count_key, Eq, tb_count_seq)?,
+                    ],
+                    if_then: vec![
+                        // Changing a table in a db has to update the seq of db_meta,
+                        // to block the batch-delete-tables when deleting a db.
+                        // TODO: test this when old metasrv is replaced with kv-txn based SchemaApi.
+                        txn_op_put(&DatabaseId { db_id }, serialize_struct(&db_meta)?)?, // (db_id) -> db_meta
+                        txn_op_del(&dbid_tbname)?, // (db_id, tb_name) -> tb_id
+                        txn_op_put(&tbid, serialize_struct(&tb_meta)?)?, // (tenant, db_id, tb_id) -> tb_meta
+                        txn_op_put(&tb_count_key, serialize_u64(tb_count - 1)?)?, // _fd_table_count/tenant -> tb_count
+                    ],
+                    else_then: vec![],
+                };
+
+                let (succ, _responses) = send_txn(self, txn_req).await?;
+
+                tracing::debug!(
+                    name = debug(&tenant_dbname_tbname),
+                    id = debug(&tbid),
+                    succ = display(succ),
+                    "drop_table"
+                );
+
+                if succ {
+                    return Ok(DropTableReply {});
                 }
             }
         }

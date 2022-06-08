@@ -26,6 +26,7 @@ use common_meta_app::schema::DropDatabaseReply;
 use common_meta_app::schema::DropDatabaseReq;
 use common_meta_app::schema::DropTableReply;
 use common_meta_app::schema::DropTableReq;
+use common_meta_app::schema::DropTableIDReq;
 use common_meta_app::schema::GetDatabaseReq;
 use common_meta_app::schema::GetTableReq;
 use common_meta_app::schema::ListDatabaseReq;
@@ -90,6 +91,8 @@ pub trait SchemaApi: Send + Sync {
 
     async fn drop_table(&self, req: DropTableReq) -> Result<DropTableReply, MetaError>;
 
+    async fn drop_table_by_id(&self, req: DropTableIDReq) -> Result<DropTableReply, MetaError>;
+    
     async fn undrop_table(&self, req: UndropTableReq) -> Result<UndropTableReply, MetaError>;
 
     async fn rename_table(&self, req: RenameTableReq) -> Result<RenameTableReply, MetaError>;

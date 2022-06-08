@@ -42,6 +42,7 @@ pub use table::CreateTableReq;
 pub use table::DBIdTableName;
 pub use table::DropTableReply;
 pub use table::DropTableReq;
+pub use table::DropTableIDReq;
 pub use table::GetTableReq;
 pub use table::ListTableReq;
 pub use table::RenameTableReply;
